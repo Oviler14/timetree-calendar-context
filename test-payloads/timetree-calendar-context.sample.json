@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "source": "timetree",
+  "generated_at": "2026-07-05T06:15:00+01:00",
+  "timezone": "Europe/London",
+  "date": "2026-07-05",
+  "freshness": {
+    "status": "fresh",
+    "age_minutes": 0
+  },
+  "calendar_load": {
+    "label": "moderate",
+    "score": 0.45,
+    "busy_minutes": 210,
+    "event_count": 3,
+    "has_travel": false,
+    "has_evening_commitment": true
+  },
+  "availability": {
+    "morning": "fragmented",
+    "afternoon": "open",
+    "evening": "busy",
+    "largest_free_block_minutes": 150
+  },
+  "today_events": [
+    {
+      "title": "Dentist",
+      "starts_at": "2026-07-05T09:30:00+01:00",
+      "all_day": false,
+      "category": "appointment",
+      "planning_relevance": "fixed appointment; avoid scheduling deep work nearby",
+      "ends_at": "2026-07-05T10:00:00+01:00"
+    }
+  ],
+  "upcoming_events": [
+    {
+      "title": "Wedding venue payment due",
+      "starts_at": "2026-07-12",
+      "all_day": true,
+      "category": "deadline",
+      "planning_relevance": "upcoming deadline may justify a small supporting task",
+      "days_until": 7
+    }
+  ],
+  "warnings": []
+}
