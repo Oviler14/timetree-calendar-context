@@ -26,6 +26,46 @@ DEADLINE_WORDS = ("deadline", "due", "payment", "pay", "renew", "expires")
 APPOINTMENT_WORDS = ("dentist", "doctor", "appointment", "gp", "hospital", "therapy")
 SOCIAL_WORDS = ("dinner", "drinks", "party", "wedding", "lunch", "meet")
 
+COLOR_RULES = {
+    "#f35f8c": {
+        "participation": "eleanor",
+        "involves": ("eleanor",),
+        "affects_capacity": False,
+        "discard": False,
+    },
+    "#3dc2c8": {
+        "participation": "oliver",
+        "involves": ("oliver",),
+        "affects_capacity": True,
+        "discard": False,
+    },
+    "#b38bdc": {
+        "participation": "both",
+        "involves": ("oliver", "eleanor"),
+        "affects_capacity": True,
+        "discard": False,
+    },
+    "#c0ca33": {
+        "participation": "birthday",
+        "involves": (),
+        "affects_capacity": False,
+        "discard": True,
+    },
+    "#e73b3b": {
+        "participation": "liverpool",
+        "involves": ("oliver",),
+        "affects_capacity": True,
+        "discard": False,
+    },
+}
+
+UNKNOWN_COLOR_RULE = {
+    "participation": "unknown",
+    "involves": (),
+    "affects_capacity": True,
+    "discard": False,
+}
+
 
 @dataclass(frozen=True)
 class Event:
@@ -48,7 +88,29 @@ class Event:
 
     @property
     def is_blocking_all_day(self) -> bool:
-        return self.all_day and not self.is_passive_all_day
+        return self.affects_capacity and self.all_day and not self.is_passive_all_day
+
+    @property
+    def color_rule(self) -> dict:
+        if not self.color:
+            return UNKNOWN_COLOR_RULE
+        return COLOR_RULES.get(self.color.lower(), UNKNOWN_COLOR_RULE)
+
+    @property
+    def participation(self) -> str:
+        return str(self.color_rule["participation"])
+
+    @property
+    def involves(self) -> tuple[str, ...]:
+        return tuple(self.color_rule["involves"])
+
+    @property
+    def affects_capacity(self) -> bool:
+        return bool(self.color_rule["affects_capacity"])
+
+    @property
+    def should_discard(self) -> bool:
+        return bool(self.color_rule["discard"])
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,7 +156,7 @@ def extract_color(component) -> str | None:
     for key in ("color", "x-apple-calendar-color", "x-color"):
         color = component.get(key)
         if color:
-            return text_value(color).strip() or None
+            return text_value(color).strip().lower() or None
     return None
 
 
@@ -175,6 +237,11 @@ def category(event: Event) -> str:
 
 
 def planning_relevance(event: Event) -> str:
+    if event.participation == "eleanor":
+        return "Eleanor-only context; does not reduce Oliver's capacity but may affect shared plans or free time"
+    if event.participation == "liverpool":
+        return "Liverpool match; Oliver is likely to watch and it should count against available time"
+
     event_category = category(event)
     if event_category == "travel":
         return "travel may reduce capacity; keep the plan light"
@@ -202,6 +269,9 @@ def event_payload(event: Event, target: date | None = None) -> dict:
         "all_day": event.all_day,
         "labels": list(event.labels),
         "color": event.color,
+        "participation": event.participation,
+        "involves": list(event.involves),
+        "affects_capacity": event.affects_capacity,
         "category": category(event),
         "planning_relevance": planning_relevance(event),
     }
@@ -284,21 +354,23 @@ def segment_status(
 
 
 def build_context(events: list[Event], saw_rrule: bool, target: date, timezone: ZoneInfo, lookahead: int) -> dict:
+    events = [event for event in events if not event.should_discard]
     today_events = [event for event in events if event_overlaps_day(event, target, timezone)]
+    capacity_today_events = [event for event in today_events if event.affects_capacity]
     upcoming_start = target + timedelta(days=1)
     upcoming_end = target + timedelta(days=lookahead)
     upcoming_events = [
         event for event in events if event_starts_within(event, upcoming_start, upcoming_end, timezone)
     ]
 
-    intervals, all_day_blocking = clipped_busy_intervals(today_events, target, timezone)
+    intervals, all_day_blocking = clipped_busy_intervals(capacity_today_events, target, timezone)
     busy_minutes = sum(minutes_between(start, end) for start, end in intervals)
     largest_block = 0 if all_day_blocking else largest_free_block(intervals, target, timezone)
-    event_count = len([event for event in today_events if not event.is_passive_all_day])
-    has_travel = any(category(event) == "travel" for event in today_events)
+    event_count = len([event for event in capacity_today_events if not event.is_passive_all_day])
+    has_travel = any(category(event) == "travel" for event in capacity_today_events)
     has_evening_commitment = any(
         not event.all_day and event.end > datetime.combine(target, time(18, 0), tzinfo=timezone)
-        for event in today_events
+        for event in capacity_today_events
     )
 
     if all_day_blocking:
@@ -317,6 +389,9 @@ def build_context(events: list[Event], saw_rrule: bool, target: date, timezone: 
     warnings = []
     if saw_rrule:
         warnings.append("ICS contains recurrence rules; recurring events were expanded for the planning window.")
+    unknown_colors = sorted({event.color for event in events if event.color and event.color not in COLOR_RULES})
+    if unknown_colors:
+        warnings.append(f"Unmapped TimeTree colors present: {', '.join(unknown_colors)}.")
 
     return {
         "success": True,
@@ -330,6 +405,7 @@ def build_context(events: list[Event], saw_rrule: bool, target: date, timezone: 
             "score": score,
             "busy_minutes": busy_minutes,
             "event_count": event_count,
+            "context_event_count": len(today_events),
             "has_travel": has_travel,
             "has_evening_commitment": has_evening_commitment,
         },

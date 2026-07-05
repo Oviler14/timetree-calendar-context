@@ -13,6 +13,7 @@
     "score": 0.45,
     "busy_minutes": 210,
     "event_count": 3,
+    "context_event_count": 3,
     "has_travel": false,
     "has_evening_commitment": true
   },
@@ -28,7 +29,10 @@
       "starts_at": "2026-07-05T09:30:00+01:00",
       "all_day": false,
       "labels": ["Oliver"],
-      "color": "#4A90E2",
+      "color": "#3dc2c8",
+      "participation": "oliver",
+      "involves": ["oliver"],
+      "affects_capacity": true,
       "category": "appointment",
       "planning_relevance": "fixed appointment; avoid scheduling deep work nearby",
       "ends_at": "2026-07-05T10:00:00+01:00"
@@ -40,7 +44,10 @@
       "starts_at": "2026-07-12",
       "all_day": true,
       "labels": ["Both"],
-      "color": "#7ED321",
+      "color": "#b38bdc",
+      "participation": "both",
+      "involves": ["oliver", "eleanor"],
+      "affects_capacity": true,
       "category": "deadline",
       "planning_relevance": "upcoming deadline may justify a small supporting task",
       "days_until": 7
