@@ -27,6 +27,8 @@
       "title": "Dentist",
       "starts_at": "2026-07-05T09:30:00+01:00",
       "all_day": false,
+      "labels": ["Oliver"],
+      "color": "#4A90E2",
       "category": "appointment",
       "planning_relevance": "fixed appointment; avoid scheduling deep work nearby",
       "ends_at": "2026-07-05T10:00:00+01:00"
@@ -37,6 +39,8 @@
       "title": "Wedding venue payment due",
       "starts_at": "2026-07-12",
       "all_day": true,
+      "labels": ["Both"],
+      "color": "#7ED321",
       "category": "deadline",
       "planning_relevance": "upcoming deadline may justify a small supporting task",
       "days_until": 7

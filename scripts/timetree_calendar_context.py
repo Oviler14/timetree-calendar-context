@@ -35,10 +35,12 @@ class Event:
     all_day: bool
     location: str
     has_rrule: bool
+    labels: tuple[str, ...]
+    color: str | None
 
     @property
     def text(self) -> str:
-        return f"{self.title} {self.location}".lower()
+        return f"{self.title} {self.location} {' '.join(self.labels)}".lower()
 
     @property
     def is_passive_all_day(self) -> bool:
@@ -63,6 +65,37 @@ def decoded(component, key: str):
     if not component.get(key):
         return None
     return component.decoded(key)
+
+
+def text_value(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def extract_labels(component) -> tuple[str, ...]:
+    raw = decoded(component, "categories")
+    if raw is None:
+        return ()
+
+    values = raw if isinstance(raw, (list, tuple, set)) else [raw]
+    labels: list[str] = []
+    for value in values:
+        for part in text_value(value).split(","):
+            label = part.strip()
+            if label and label not in labels:
+                labels.append(label)
+    return tuple(labels)
+
+
+def extract_color(component) -> str | None:
+    for key in ("color", "x-apple-calendar-color", "x-color"):
+        color = component.get(key)
+        if color:
+            return text_value(color).strip() or None
+    return None
 
 
 def normalize_datetime(value: datetime, timezone: ZoneInfo) -> datetime:
@@ -104,6 +137,8 @@ def load_events(
                 all_day=all_day,
                 location=str(component.get("location", "")).strip(),
                 has_rrule=has_rrule,
+                labels=extract_labels(component),
+                color=extract_color(component),
             )
         )
 
@@ -165,6 +200,8 @@ def event_payload(event: Event, target: date | None = None) -> dict:
         "title": event.title,
         "starts_at": iso_value(event.start),
         "all_day": event.all_day,
+        "labels": list(event.labels),
+        "color": event.color,
         "category": category(event),
         "planning_relevance": planning_relevance(event),
     }

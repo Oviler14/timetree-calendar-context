@@ -34,5 +34,6 @@ python scripts/timetree_calendar_context.py --ics timetree.ics --lookahead-days 
 ## Notes
 
 - TimeTree has no official public API for this use case; `timetree-exporter` uses unofficial web APIs.
+- TimeTree label categories and colours are preserved as `labels` and `color` in event payloads when present in the exported ICS.
 - Avoid fetching comments for the scheduled planner path unless needed, because that adds extra TimeTree requests.
 - The JSON payload is a compact planning summary, not a full calendar archive.
