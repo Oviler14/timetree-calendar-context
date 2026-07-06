@@ -12,6 +12,7 @@
     "label": "moderate",
     "score": 0.45,
     "busy_minutes": 210,
+    "all_day_context_minutes": 90,
     "event_count": 3,
     "context_event_count": 3,
     "has_travel": false,
@@ -25,31 +26,36 @@
   },
   "today_events": [
     {
-      "title": "Dentist",
-      "starts_at": "2026-07-05T09:30:00+01:00",
-      "all_day": false,
+      "title": "Sam's",
+      "starts_at": "2026-07-05",
+      "ends_at": "2026-07-06",
+      "all_day": true,
+      "duration_days": 1,
+      "all_day_interpretation": "likely_evening_context",
       "labels": ["Oliver"],
       "color": "#3dc2c8",
       "participation": "oliver",
       "involves": ["oliver"],
       "affects_capacity": true,
-      "category": "appointment",
-      "planning_relevance": "fixed appointment; avoid scheduling deep work nearby",
-      "ends_at": "2026-07-05T10:00:00+01:00"
+      "category": "event",
+      "planning_relevance": "single-day all-day social context, likely an evening plan; protect evening capacity but keep daytime tasks possible"
     }
   ],
   "upcoming_events": [
     {
-      "title": "Wedding venue payment due",
+      "title": "Lanzarote",
       "starts_at": "2026-07-12",
+      "ends_at": "2026-07-15",
       "all_day": true,
+      "duration_days": 3,
+      "all_day_interpretation": "away_or_multi_day",
       "labels": ["Both"],
       "color": "#b38bdc",
       "participation": "both",
       "involves": ["oliver", "eleanor"],
       "affects_capacity": true,
-      "category": "deadline",
-      "planning_relevance": "upcoming deadline may justify a small supporting task",
+      "category": "travel",
+      "planning_relevance": "all-day or multi-day away context; keep the plan very light and prefer portable, low-friction tasks",
       "days_until": 7
     }
   ],

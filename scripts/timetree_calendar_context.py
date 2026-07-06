@@ -21,10 +21,13 @@ AFTERNOON = (time(12, 0), time(18, 0))
 EVENING = (time(18, 0), time(22, 0))
 
 TRAVEL_WORDS = ("travel", "flight", "train", "airport", "hotel", "trip", "drive")
+HOLIDAY_WORDS = ("holiday", "vacation", "abroad", "away", "lanzarote")
 PASSIVE_ALL_DAY_WORDS = ("birthday", "anniversary")
+BLOCKING_ALL_DAY_WORDS = ("blocked", "unavailable", "sick", "ill", "hospital", "wedding")
 DEADLINE_WORDS = ("deadline", "due", "payment", "pay", "renew", "expires")
 APPOINTMENT_WORDS = ("dentist", "doctor", "appointment", "gp", "hospital", "therapy")
 SOCIAL_WORDS = ("dinner", "drinks", "party", "wedding", "lunch", "meet")
+GUEST_WORDS = ("visiting", "visit", "staying", "guest", "guests")
 
 COLOR_RULES = {
     "#f35f8c": {
@@ -87,8 +90,23 @@ class Event:
         return self.all_day and any(word in self.text for word in PASSIVE_ALL_DAY_WORDS)
 
     @property
-    def is_blocking_all_day(self) -> bool:
-        return self.affects_capacity and self.all_day and not self.is_passive_all_day
+    def all_day_duration_days(self) -> int:
+        if not self.all_day:
+            return 0
+        return max(1, (self.end - self.start).days)
+
+    @property
+    def is_multi_day_all_day(self) -> bool:
+        return self.all_day_duration_days > 1
+
+    @property
+    def is_explicit_blocking_all_day(self) -> bool:
+        return (
+            self.affects_capacity
+            and self.all_day
+            and not self.is_passive_all_day
+            and any(word in self.text for word in BLOCKING_ALL_DAY_WORDS)
+        )
 
     @property
     def color_rule(self) -> dict:
@@ -223,8 +241,10 @@ def event_starts_within(event: Event, start_date: date, end_date: date, timezone
 
 def category(event: Event) -> str:
     text = event.text
-    if any(word in text for word in TRAVEL_WORDS):
+    if any(word in text for word in TRAVEL_WORDS + HOLIDAY_WORDS):
         return "travel"
+    if any(word in text for word in GUEST_WORDS):
+        return "guest"
     if any(word in text for word in DEADLINE_WORDS):
         return "deadline"
     if any(word in text for word in APPOINTMENT_WORDS):
@@ -244,7 +264,11 @@ def planning_relevance(event: Event) -> str:
 
     event_category = category(event)
     if event_category == "travel":
+        if event.all_day:
+            return "all-day or multi-day away context; keep the plan very light and prefer portable, low-friction tasks"
         return "travel may reduce capacity; keep the plan light"
+    if event_category == "guest":
+        return "guest or visitor context; reduce the plan and prefer approachable or home-friendly tasks"
     if event_category == "deadline":
         return "upcoming deadline may justify a small supporting task"
     if event_category == "appointment":
@@ -253,13 +277,36 @@ def planning_relevance(event: Event) -> str:
         return "social commitment may reduce evening capacity"
     if event_category == "passive_reminder":
         return "passive all-day reminder; do not reduce capacity by itself"
-    if event.is_blocking_all_day:
-        return "all-day event may reduce discretionary capacity"
+    if event.is_explicit_blocking_all_day:
+        return "explicit all-day blocker; keep discretionary tasks to a minimum"
+    if event.all_day and event.affects_capacity:
+        if event.is_multi_day_all_day:
+            return "multi-day all-day context; likely away or disrupted routine, so keep the plan very light"
+        if event.title.strip().endswith(("'s", "’s")):
+            return "single-day all-day social context, likely an evening plan; protect evening capacity but keep daytime tasks possible"
+        return "single-day all-day context; use the event title to infer availability instead of treating the whole day as blocked"
     return "calendar event may affect available time"
 
 
 def iso_value(value: datetime | date) -> str:
     return value.isoformat()
+
+
+def all_day_interpretation(event: Event) -> str | None:
+    if not event.all_day:
+        return None
+    if event.is_passive_all_day:
+        return "passive_reminder"
+    if event.is_explicit_blocking_all_day:
+        return "blocking"
+    event_category = category(event)
+    if event_category == "guest":
+        return "guest_context"
+    if event_category == "travel" or event.is_multi_day_all_day:
+        return "away_or_multi_day"
+    if event.title.strip().endswith(("'s", "’s")):
+        return "likely_evening_context"
+    return "context"
 
 
 def event_payload(event: Event, target: date | None = None) -> dict:
@@ -277,6 +324,10 @@ def event_payload(event: Event, target: date | None = None) -> dict:
     }
     if not event.all_day:
         payload["ends_at"] = iso_value(event.end)
+    else:
+        payload["ends_at"] = iso_value(event.end)
+        payload["duration_days"] = event.all_day_duration_days
+        payload["all_day_interpretation"] = all_day_interpretation(event)
     if target is not None:
         event_date = event.start if event.all_day else event.start.date()
         payload["days_until"] = (event_date - target).days
@@ -293,7 +344,7 @@ def clipped_busy_intervals(
 
     for event in events:
         if event.all_day:
-            all_day_blocking = all_day_blocking or event.is_blocking_all_day
+            all_day_blocking = all_day_blocking or event.is_explicit_blocking_all_day
             continue
         start = max(event.start, work_start)
         end = min(event.end, work_end)
@@ -353,6 +404,45 @@ def segment_status(
     return "mostly_open"
 
 
+def all_day_load_minutes(events: list[Event]) -> int:
+    load = 0
+    for event in events:
+        if not event.all_day or not event.affects_capacity or event.is_passive_all_day:
+            continue
+        event_category = category(event)
+        if event.is_explicit_blocking_all_day:
+            load += 480
+        elif event_category == "travel" or event.is_multi_day_all_day:
+            load += 300
+        elif event_category == "guest":
+            load += 180
+        elif event.participation == "liverpool":
+            load += 120
+        else:
+            load += 90
+    return load
+
+
+def contextual_segment_status(base: str, events: list[Event], segment: str) -> str:
+    if base in ("busy", "fragmented"):
+        return base
+
+    contextual_events = [
+        event
+        for event in events
+        if event.all_day and event.affects_capacity and not event.is_passive_all_day
+    ]
+    if not contextual_events:
+        return base
+    if any(event.is_explicit_blocking_all_day for event in contextual_events):
+        return "busy"
+    if any(category(event) == "guest" or category(event) == "travel" or event.is_multi_day_all_day for event in contextual_events):
+        return "context_limited"
+    if segment == "evening":
+        return "context_limited"
+    return base
+
+
 def build_context(events: list[Event], saw_rrule: bool, target: date, timezone: ZoneInfo, lookahead: int) -> dict:
     events = [event for event in events if not event.should_discard]
     today_events = [event for event in events if event_overlaps_day(event, target, timezone)]
@@ -365,11 +455,19 @@ def build_context(events: list[Event], saw_rrule: bool, target: date, timezone: 
 
     intervals, all_day_blocking = clipped_busy_intervals(capacity_today_events, target, timezone)
     busy_minutes = sum(minutes_between(start, end) for start, end in intervals)
+    all_day_context_minutes = all_day_load_minutes(capacity_today_events)
+    effective_busy_minutes = busy_minutes + all_day_context_minutes
     largest_block = 0 if all_day_blocking else largest_free_block(intervals, target, timezone)
     event_count = len([event for event in capacity_today_events if not event.is_passive_all_day])
     has_travel = any(category(event) == "travel" for event in capacity_today_events)
     has_evening_commitment = any(
         not event.all_day and event.end > datetime.combine(target, time(18, 0), tzinfo=timezone)
+        for event in capacity_today_events
+    ) or any(
+        event.all_day
+        and event.affects_capacity
+        and not event.is_passive_all_day
+        and not (category(event) == "travel" or category(event) == "guest" or event.is_multi_day_all_day)
         for event in capacity_today_events
     )
 
@@ -377,14 +475,17 @@ def build_context(events: list[Event], saw_rrule: bool, target: date, timezone: 
         label = "blocked"
     elif busy_minutes == 0 and not today_events:
         label = "none"
-    elif busy_minutes > 300 or has_travel or largest_block < 90:
+    elif effective_busy_minutes > 300 or has_travel or largest_block < 90:
         label = "heavy"
-    elif busy_minutes < 120 and largest_block >= 180:
+    elif effective_busy_minutes < 120 and largest_block >= 180:
         label = "light"
     else:
         label = "moderate"
 
-    score = min(1.0, round((busy_minutes / 600) + (event_count * 0.05) + (0.25 if has_travel else 0), 2))
+    score = min(
+        1.0,
+        round((busy_minutes / 600) + (all_day_context_minutes / 720) + (event_count * 0.05) + (0.25 if has_travel else 0), 2),
+    )
     generated_at = datetime.now(timezone)
     warnings = []
     if saw_rrule:
@@ -404,15 +505,28 @@ def build_context(events: list[Event], saw_rrule: bool, target: date, timezone: 
             "label": label,
             "score": score,
             "busy_minutes": busy_minutes,
+            "all_day_context_minutes": all_day_context_minutes,
             "event_count": event_count,
             "context_event_count": len(today_events),
             "has_travel": has_travel,
             "has_evening_commitment": has_evening_commitment,
         },
         "availability": {
-            "morning": "busy" if all_day_blocking else segment_status(intervals, target, timezone, MORNING),
-            "afternoon": "busy" if all_day_blocking else segment_status(intervals, target, timezone, AFTERNOON),
-            "evening": "busy" if all_day_blocking else segment_status(intervals, target, timezone, EVENING),
+            "morning": contextual_segment_status(
+                "busy" if all_day_blocking else segment_status(intervals, target, timezone, MORNING),
+                capacity_today_events,
+                "morning",
+            ),
+            "afternoon": contextual_segment_status(
+                "busy" if all_day_blocking else segment_status(intervals, target, timezone, AFTERNOON),
+                capacity_today_events,
+                "afternoon",
+            ),
+            "evening": contextual_segment_status(
+                "busy" if all_day_blocking else segment_status(intervals, target, timezone, EVENING),
+                capacity_today_events,
+                "evening",
+            ),
             "largest_free_block_minutes": largest_block,
         },
         "today_events": [event_payload(event) for event in today_events],
