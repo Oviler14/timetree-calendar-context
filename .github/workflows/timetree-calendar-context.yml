@@ -5,7 +5,8 @@ on:
   schedule:
     # GitHub cron uses UTC. This lands before a 07:00 Europe/London planner run
     # throughout the year, though it is earlier during GMT.
-    - cron: "45 5 * * *"
+    - cron: "00 4 * * *"
+      timezone: "Europe/London"
 
 jobs:
   export-calendar-context:
